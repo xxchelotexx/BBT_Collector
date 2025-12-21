@@ -1,1 +1,1 @@
-worker: python binance_collector.py
+worker: python bybit_collector.py
