@@ -2,3 +2,4 @@
 requests
 pymongo
 python-dotenv
+bybit-p2p
