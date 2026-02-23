@@ -86,7 +86,9 @@ def ejecutar_recoleccion_datos():
                 cantidad = float(item["lastQuantity"])
                 min_amount = float(item["minAmount"])
                 max_amount = float(item["maxAmount"])
-                
+                frozen = float(item.get("frozenQuantity", 0))
+                executed = float(item.get("executedQuantity", 0))   
+
                 vol_total += cantidad
 
                 if precio_key not in agrupado:
@@ -94,13 +96,17 @@ def ejecutar_recoleccion_datos():
                         "suma": 0.0, 
                         "conteo": 0,
                         "min_amounts": [],
-                        "max_amounts": []
+                        "max_amounts": [],
+                        "frozen": 0.0,
+                        "executed": 0.0
                     }
 
                 agrupado[precio_key]["suma"] += cantidad
                 agrupado[precio_key]["conteo"] += 1
                 agrupado[precio_key]["min_amounts"].append(min_amount)
                 agrupado[precio_key]["max_amounts"].append(max_amount)
+                agrupado[precio_key]["frozen"] += frozen
+                agrupado[precio_key]["executed"] += executed
 
             except (TypeError, ValueError, KeyError):
                 continue
@@ -124,7 +130,9 @@ def ejecutar_recoleccion_datos():
                 "conteo": valores["conteo"],
                 "min": min_agrupado,
                 "max": max_agrupado,
-                "inmediato": inmediato_usdt
+                "inmediato": inmediato_usdt,
+                "volumen_en_proceso": valores["frozen"],
+                "volumen_ejecutado": valores["executed"]
             }
             
         resultados_finales.append({
