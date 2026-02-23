@@ -45,19 +45,18 @@ except Exception as e:
 # --- FUNCIÓN DE PROCESAMIENTO Y GUARDADO ---
 
 def ejecutar_recoleccion_datos():
-    """
-    Llama a la API de Bybit, procesa los datos y los inserta en MongoDB.
-    """
     print(f"\n--- 📡 Iniciando recolección Bybit: {datetime.now().strftime('%H:%M:%S')} ---")
     
     resultados_finales = []
-    # 1 para SELL (Venta del usuario), 0 para BUY (Compra del usuario)
-    # Nota: Bybit API usa side=1 para Ads de venta, side=0 para Ads de compra
+    # 1 para anuncios de venta (tú compras -> BUY), 0 para anuncios de compra (tú vendes -> SELL)
     estados = [1, 0] 
 
     for estado in estados:
         items = []
-        # Paginación de anuncios
+        ordenes_abiertas_por_tipo = []  # 🟢 Lista específica para este grupo (BUY o SELL)
+        
+        trade_type = "BUY" if estado == 1 else "SELL" # Definimos el tipo según el estado
+
         for page in range(1, 20): 
             try:
                 response = api.get_online_ads(
@@ -80,16 +79,22 @@ def ejecutar_recoleccion_datos():
         for item in items:
             try:
                 precio_float = float(item["price"])
-                # Para MongoDB, reemplazamos el punto decimal por guion bajo en la llave
-                precio_key = f"{precio_float:.2f}".replace(".", "_")
-                
                 cantidad = float(item["lastQuantity"])
-                min_amount = float(item["minAmount"])
-                max_amount = float(item["maxAmount"])
+                # Campos de interés
                 frozen = float(item.get("frozenQuantity", 0))
-                executed = float(item.get("executedQuantity", 0))   
+                executed = float(item.get("executedQuantity", 0))
+                nickname = item.get("nickName", "Sin nombre")
+
+                # 🟢 Lógica solicitada: Si frozenQuantity != 0, agregar a la lista del grupo actual
+                if frozen != 0:
+                    ordenes_abiertas_por_tipo.append({
+                        "nickname": nickname,
+                        "frozenQuantity": frozen,
+                        "precio": precio_float  # Agregado para mayor utilidad
+                    })
 
                 vol_total += cantidad
+                precio_key = f"{precio_float:.2f}".replace(".", "_")
 
                 if precio_key not in agrupado:
                     agrupado[precio_key] = {
@@ -97,31 +102,27 @@ def ejecutar_recoleccion_datos():
                         "conteo": 0,
                         "min_amounts": [],
                         "max_amounts": [],
-                        "frozen": 0.0,
-                        "executed": 0.0
+                        "frozen_total": 0.0,
+                        "executed_total": 0.0
                     }
 
                 agrupado[precio_key]["suma"] += cantidad
                 agrupado[precio_key]["conteo"] += 1
-                agrupado[precio_key]["min_amounts"].append(min_amount)
-                agrupado[precio_key]["max_amounts"].append(max_amount)
-                agrupado[precio_key]["frozen"] += frozen
-                agrupado[precio_key]["executed"] += executed
+                agrupado[precio_key]["min_amounts"].append(float(item["minAmount"]))
+                agrupado[precio_key]["max_amounts"].append(float(item["maxAmount"]))
+                agrupado[precio_key]["frozen_total"] += frozen
+                agrupado[precio_key]["executed_total"] += executed
 
             except (TypeError, ValueError, KeyError):
                 continue
         
-        trade_type = "SELL" if estado == 0 else "BUY" 
         datos_agrupados_mongo = {}
         
-        # Procesar cálculos finales por cada grupo de precio
         for p_key, valores in agrupado.items():
             p_float = float(p_key.replace("_", "."))
-            
             min_agrupado = min(valores["min_amounts"]) if valores["min_amounts"] else 0.0
             max_agrupado = max(valores["max_amounts"]) if valores["max_amounts"] else 0.0
             
-            # Cálculo de inmediato (Suma de maxAmounts en BOB / precio)
             suma_max_bob = sum(valores["max_amounts"])
             inmediato_usdt = suma_max_bob / p_float if p_float != 0 else 0.0
             
@@ -131,17 +132,19 @@ def ejecutar_recoleccion_datos():
                 "min": min_agrupado,
                 "max": max_agrupado,
                 "inmediato": inmediato_usdt,
-                "volumen_en_proceso": valores["frozen"],
-                "volumen_ejecutado": valores["executed"]
+                "volumen_en_proceso": valores["frozen_total"],
+                "volumen_ejecutado": valores["executed_total"]
             }
             
+        # 🟢 Guardamos el resultado del grupo actual (BUY o SELL)
         resultados_finales.append({
             "trade_type": trade_type,
-            "vol_total": vol_total,
-            "datos_agrupados": datos_agrupados_mongo
+            "vol_total_anuncios": vol_total,
+            "datos_agrupados": datos_agrupados_mongo,
+            "ordenes_abiertas": ordenes_abiertas_por_tipo  # Aquí quedan agrupadas
         })
 
-    # --- INSERCIÓN EN MONGODB ---
+    # Inserción en MongoDB
     documento = {
         "timestamp": datetime.now(timezone.utc),
         "exchange": "bybit",
@@ -150,9 +153,9 @@ def ejecutar_recoleccion_datos():
     
     try:
         collection.insert_one(documento)
-        print(f"✅ Datos de Bybit guardados en MongoDB Atlas.")
+        print(f"✅ Recolección completa. Datos agrupados por BUY/SELL guardados.")
     except Exception as e:
-        print(f"❌ Error al insertar en MongoDB: {e}")
+        print(f"❌ Error MongoDB: {e}")
 
 
 def worker():
