@@ -94,6 +94,7 @@ def ejecutar_recoleccion_datos():
                         "precio": precio_float  # Agregado para mayor utilidad
                     })
 
+
                 vol_total += cantidad
                 precio_key = f"{precio_float:.2f}".replace(".", "_")
 
