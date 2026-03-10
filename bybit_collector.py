@@ -89,6 +89,7 @@ def ejecutar_recoleccion_datos():
                 if frozen != 0:
                     ordenes_abiertas_por_tipo.append({
                         "nickname": nickname,
+                        "executed": executed,
                         "frozenQuantity": frozen,
                         "precio": precio_float  # Agregado para mayor utilidad
                     })
