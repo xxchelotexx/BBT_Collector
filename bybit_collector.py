@@ -96,7 +96,7 @@ def ejecutar_recoleccion_datos():
 
 
                 vol_total += cantidad
-                precio_key = f"{precio_float:.2f}".replace(".", "_")
+                precio_key = f"{precio_float:.3f}".replace(".", "_")
 
                 if precio_key not in agrupado:
                     agrupado[precio_key] = {
@@ -158,6 +158,8 @@ def ejecutar_recoleccion_datos():
         print(f"✅ Recolección completa. Datos agrupados por BUY/SELL guardados.")
     except Exception as e:
         print(f"❌ Error MongoDB: {e}")
+
+
 
 
 def worker():
