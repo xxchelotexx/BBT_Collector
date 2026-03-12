@@ -53,7 +53,8 @@ def ejecutar_recoleccion_datos():
 
     for estado in estados:
         items = []
-        ordenes_abiertas_por_tipo = []  # 🟢 Lista específica para este grupo (BUY o SELL)
+        ordenes_abiertas_por_tipo = []  # Lista específica para este grupo (BUY o SELL)
+        anuncios_sin_ordenes= []
         
         trade_type = "BUY" if estado == 1 else "SELL" # Definimos el tipo según el estado
 
@@ -93,7 +94,15 @@ def ejecutar_recoleccion_datos():
                         "frozenQuantity": frozen,
                         "precio": precio_float  # Agregado para mayor utilidad
                     })
-
+                else:
+                    {
+                        anuncios_sin_ordenes.append({
+                            "nickname": nickname,
+                            "executed": executed,
+                            "frozenQuantity": frozen,
+                            "precio": precio_float
+                        })    
+                    }
 
                 vol_total += cantidad
                 precio_key = f"{precio_float:.3f}".replace(".", "_")
@@ -143,7 +152,8 @@ def ejecutar_recoleccion_datos():
             "trade_type": trade_type,
             "vol_total_anuncios": vol_total,
             "datos_agrupados": datos_agrupados_mongo,
-            "ordenes_abiertas": ordenes_abiertas_por_tipo  # Aquí quedan agrupadas
+            "ordenes_abiertas": ordenes_abiertas_por_tipo,
+            "anuncios_sin_ordenes": anuncios_sin_ordenes  # Aquí quedan agrupadas
         })
 
     # Inserción en MongoDB
