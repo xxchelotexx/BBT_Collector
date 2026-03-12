@@ -165,7 +165,7 @@ def ejecutar_recoleccion_datos():
     
     try:
         collection.insert_one(documento)
-        print(f"✅ Recolección completa. Datos agrupados por BUY/SELL guardados.")
+        print(f"✅ Recolección completa. Datos agrupados por BUY/SELL guardados. {datetime.now().strftime('%H:%M:%S')}")
     except Exception as e:
         print(f"❌ Error MongoDB: {e}")
 
