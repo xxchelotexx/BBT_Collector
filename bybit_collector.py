@@ -54,7 +54,7 @@ def ejecutar_recoleccion_datos():
     for estado in estados:
         items = []
         ordenes_abiertas_por_tipo = []  # Lista específica para este grupo (BUY o SELL)
-        anuncios_sin_ordenes= []
+        anuncios= []
         
         trade_type = "BUY" if estado == 1 else "SELL" # Definimos el tipo según el estado
 
@@ -85,7 +85,15 @@ def ejecutar_recoleccion_datos():
                 frozen = float(item.get("frozenQuantity", 0))
                 executed = float(item.get("executedQuantity", 0))
                 nickname = item.get("nickName", "Sin nombre")
-
+                    
+                anuncios.append({
+                            "nickname": nickname,
+                            "cantidad": cantidad,
+                            "executed": executed,
+                            "frozenQuantity": frozen,
+                            "precio": precio_float
+                        })    
+                    
                 # 🟢 Lógica solicitada: Si frozenQuantity != 0, agregar a la lista del grupo actual
                 if frozen != 0:
                     ordenes_abiertas_por_tipo.append({
@@ -94,15 +102,7 @@ def ejecutar_recoleccion_datos():
                         "frozenQuantity": frozen,
                         "precio": precio_float  # Agregado para mayor utilidad
                     })
-                else:
-                    {
-                        anuncios_sin_ordenes.append({
-                            "nickname": nickname,
-                            "executed": executed,
-                            "frozenQuantity": frozen,
-                            "precio": precio_float
-                        })    
-                    }
+
 
                 vol_total += cantidad
                 precio_key = f"{precio_float:.3f}".replace(".", "_")
@@ -153,7 +153,7 @@ def ejecutar_recoleccion_datos():
             "vol_total_anuncios": vol_total,
             "datos_agrupados": datos_agrupados_mongo,
             "ordenes_abiertas": ordenes_abiertas_por_tipo,
-            "anuncios_sin_ordenes": anuncios_sin_ordenes  # Aquí quedan agrupadas
+            "anuncios": anuncios  # Aquí quedan agrupadas
         })
 
     # Inserción en MongoDB
@@ -168,9 +168,6 @@ def ejecutar_recoleccion_datos():
         print(f"✅ Recolección completa. Datos agrupados por BUY/SELL guardados.")
     except Exception as e:
         print(f"❌ Error MongoDB: {e}")
-
-
-
 
 def worker():
     print("🚀 Programador Bybit -> MongoDB iniciado.")
