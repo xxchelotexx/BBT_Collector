@@ -48,15 +48,20 @@ def ejecutar_recoleccion_datos():
     print(f"\n--- 📡 Iniciando recolección Bybit: {datetime.now().strftime('%H:%M:%S')} ---")
     
     resultados_finales = []
+    # Diccionario temporal para guardar los anuncios al mismo nivel de 'resultados'
+    anuncios_por_tipo = {} 
+    
     # 1 para anuncios de venta (tú compras -> BUY), 0 para anuncios de compra (tú vendes -> SELL)
     estados = [1, 0] 
 
     for estado in estados:
         items = []
         ordenes_abiertas_por_tipo = []  # Lista específica para este grupo (BUY o SELL)
-        anuncios= []
+        anuncios = []
         
         trade_type = "BUY" if estado == 1 else "SELL" # Definimos el tipo según el estado
+        # Definimos el nombre de la llave final en base al trade_type
+        merchant_key = "merchant_buy" if trade_type == "BUY" else "merchant_sell"
 
         for page in range(1, 20): 
             try:
@@ -81,28 +86,29 @@ def ejecutar_recoleccion_datos():
             try:
                 precio_float = float(item["price"])
                 cantidad = float(item["lastQuantity"])
-                # Campos de interés
                 frozen = float(item.get("frozenQuantity", 0))
                 executed = float(item.get("executedQuantity", 0))
                 nickname = item.get("nickName", "Sin nombre")
                     
+                # 🟢 Guardamos con la nueva estructura y nombres de campos solicitados
                 anuncios.append({
-                            "nickname": nickname,
-                            "cantidad": cantidad,
-                            "executed": executed,
-                            "frozenQuantity": frozen,
-                            "precio": precio_float
-                        })    
+                    "nickName": nickname,
+                    "price": precio_float,
+                    "tradeableQuantity": cantidad,
+                    "minSingleTransAmount": float(item.get("minAmount", 0)),
+                    "maxSingleTransAmount": float(item.get("maxAmount", 0)),
+                    "executed": executed,
+                    "frozenQuantity": frozen
+                })    
                     
-                # 🟢 Lógica solicitada: Si frozenQuantity != 0, agregar a la lista del grupo actual
+                # Si frozenQuantity != 0, agregar a la lista del grupo actual
                 if frozen != 0:
                     ordenes_abiertas_por_tipo.append({
                         "nickname": nickname,
                         "executed": executed,
                         "frozenQuantity": frozen,
-                        "precio": precio_float  # Agregado para mayor utilidad
+                        "precio": precio_float  
                     })
-
 
                 vol_total += cantidad
                 precio_key = f"{precio_float:.3f}".replace(".", "_")
@@ -147,15 +153,32 @@ def ejecutar_recoleccion_datos():
                 "volumen_ejecutado": valores["executed_total"]
             }
             
-        # 🟢 Guardamos el resultado del grupo actual (BUY o SELL)
+        # Guardamos las métricas en la lista de resultados (sin la lista de anuncios adentro)
         resultados_finales.append({
             "trade_type": trade_type,
             "vol_total_anuncios": vol_total,
             "datos_agrupados": datos_agrupados_mongo,
-            "ordenes_abiertas": ordenes_abiertas_por_tipo,
-            "anuncios": anuncios  # Aquí quedan agrupadas
+            "ordenes_abiertas": ordenes_abiertas_por_tipo
         })
 
+        # Almacenamos temporalmente los anuncios mapeados con su llave correspondiente
+        anuncios_por_tipo[merchant_key] = anuncios
+
+    # 🟢 Construcción del documento final de MongoDB
+    documento = {
+        "timestamp": datetime.now(timezone.utc),
+        "exchange": "bybit",
+        "resultados": resultados_finales,
+        # Desempaquetamos merchant_buy y merchant_sell para que queden al mismo nivel
+        "merchant_buy": anuncios_por_tipo.get("merchant_buy", []),
+        "merchant_sell": anuncios_por_tipo.get("merchant_sell", [])
+    }
+    
+    try:
+        collection.insert_one(documento)
+        print(f"✅ Recolección completa. Datos guardados en MongoDB. {datetime.now().strftime('%H:%M:%S')}")
+    except Exception as e:
+        print(f"❌ Error MongoDB: {e}")
     # Inserción en MongoDB
     documento = {
         "timestamp": datetime.now(timezone.utc),
