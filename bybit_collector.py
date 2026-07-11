@@ -94,7 +94,7 @@ def ejecutar_recoleccion_datos():
                 anuncios.append({
                     "nickName": nickname,
                     "price": precio_float,
-                    "tradeableQuantity": cantidad,
+                    "tradableQuantity": cantidad,
                     "minSingleTransAmount": float(item.get("minAmount", 0)),
                     "maxSingleTransAmount": float(item.get("maxAmount", 0)),
                     "executed": executed,
