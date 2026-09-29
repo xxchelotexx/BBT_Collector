@@ -3,3 +3,4 @@ requests
 pymongo
 python-dotenv
 bybit-p2p
+curl_cffi>=0.7.0
