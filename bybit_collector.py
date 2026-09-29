@@ -194,7 +194,7 @@ def worker():
     while True:
         ahora = datetime.now()
         # Horario: 10s en día, 30s en noche
-        intervalo = 10 if 6 <= ahora.hour <= 23 else 30
+        intervalo = 15 if 6 <= ahora.hour <= 23 else 30
         
         ejecutar_recoleccion_datos()
         time.sleep(intervalo)
