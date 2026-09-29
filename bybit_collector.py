@@ -1,10 +1,10 @@
-from bybit_p2p import P2P
-from dotenv import load_dotenv
-import sys
-import json
 import os
+import sys
 import time
+import json
 from datetime import datetime, timezone
+from curl_cffi import requests
+from dotenv import load_dotenv
 from pymongo import MongoClient
 
 # --- CONFIGURACIÓN GLOBAL ---
@@ -25,22 +25,54 @@ try:
     client = MongoClient(MONGO_URI)
     db = client["Monitor_P2P_Bolivia"]
     collection = db["BBT_PRICE"]
-    # Verificar conexión
     client.admin.command('ping')
 except Exception as e:
     print(f"❌ Error crítico de conexión a MongoDB: {e}")
     sys.exit(1)
 
-# --- INICIALIZACIÓN API BYBIT ---
-try:
-    api = P2P(
-        testnet=False,
-        api_key=os.getenv("BYBIT_API_KEY"),
-        api_secret=os.getenv("BYBIT_API_SECRET")
+# --- CONFIGURACIÓN ENDPOINT BYBIT X-API ---
+BYBIT_OTC_URL = "https://www.bybit.com/x-api/fiat/otc/item/online"
+
+HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+    "Content-Type": "application/json",
+    "Origin": "https://www.bybit.com",
+    "Referer": "https://www.bybit.com/fiat/trade/express/home",
+    "Sec-Ch-Ua": '"Not A(Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+}
+
+def consultar_bybit_otc(side: int, page: int):
+    """Consulta la API usando curl_cffi con TLS impersonation para evadir Akamai."""
+    payload = {
+        "tokenId": "USDT",
+        "currencyId": "BOB",
+        "side": str(side),
+        "page": str(page),
+        "size": "20"
+    }
+    
+    # impersonate="chrome120" fuerza a curl_cffi a replicar el TLS Fingerprint exacto de Chrome
+    response = requests.post(
+        BYBIT_OTC_URL, 
+        json=payload, 
+        headers=HEADERS, 
+        impersonate="chrome120",
+        timeout=15
     )
-except Exception as e:
-    print(f"❌ Error al inicializar la API de Bybit: {e}")
-    sys.exit(1)
+    
+    if response.status_code != 200:
+        print(f"🚨 [HTTP {response.status_code}] Error en lado={side}, pag={page}")
+        print(f"   ↳ Body: {response.text[:300]}")
+        response.raise_for_status()
+
+    return response.json()
+
 
 # --- FUNCIÓN DE PROCESAMIENTO Y GUARDADO ---
 
@@ -48,35 +80,32 @@ def ejecutar_recoleccion_datos():
     print(f"\n--- 📡 Iniciando recolección Bybit: {datetime.now().strftime('%H:%M:%S')} ---")
     
     resultados_finales = []
-    # Diccionario temporal para guardar los anuncios al mismo nivel de 'resultados'
     anuncios_por_tipo = {} 
-    
-    # 1 para anuncios de venta (tú compras -> BUY), 0 para anuncios de compra (tú vendes -> SELL)
     estados = [1, 0] 
 
     for estado in estados:
         items = []
-        ordenes_abiertas_por_tipo = []  # Lista específica para este grupo (BUY o SELL)
+        ordenes_abiertas_por_tipo = []
         anuncios = []
         
-        trade_type = "BUY" if estado == 1 else "SELL" # Definimos el tipo según el estado
-        # Definimos el nombre de la llave final en base al trade_type
+        trade_type = "BUY" if estado == 1 else "SELL"
         merchant_key = "merchant_buy" if trade_type == "BUY" else "merchant_sell"
 
         for page in range(1, 20): 
             try:
-                response = api.get_online_ads(
-                    tokenId="USDT",
-                    currencyId="BOB",
-                    side=estado,
-                    page=str(page)
-                )
-                if response.get("result") and response["result"].get("items"):
-                    items.extend(response["result"]["items"])
+                response = consultar_bybit_otc(side=estado, page=page)
+                
+                if response.get("ret_code") == 0 and response.get("result") and response["result"].get("items"):
+                    p_items = response["result"]["items"]
+                    items.extend(p_items)
+                    # print(f"   🔍 Lado {trade_type} | Pág {page}: Recibidos {len(p_items)} anuncios.")
                 else:
+                    ret_code = response.get('ret_code')
+                    ret_msg = response.get('ret_msg')
+                    # print(f"   ℹ️ Fin de paginación o respuesta vacía (lado={estado}, p={page}). Code: {ret_code}, Msg: '{ret_msg}'")
                     break 
             except Exception as e:
-                print(f"⚠️ Error API Bybit (lado={estado}, p={page}): {e}")
+                print(f"⚠️ Deteniendo iteración por error en API Bybit (lado={estado}, p={page}): {e}")
                 break 
 
         agrupado = {}
@@ -90,7 +119,6 @@ def ejecutar_recoleccion_datos():
                 executed = float(item.get("executedQuantity", 0))
                 nickname = item.get("nickName", "Sin nombre")
                     
-                # 🟢 Guardamos con la nueva estructura y nombres de campos solicitados
                 anuncios.append({
                     "nickName": nickname,
                     "price": precio_float,
@@ -101,7 +129,6 @@ def ejecutar_recoleccion_datos():
                     "frozenQuantity": frozen
                 })    
                     
-                # Si frozenQuantity != 0, agregar a la lista del grupo actual
                 if frozen != 0:
                     ordenes_abiertas_por_tipo.append({
                         "nickname": nickname,
@@ -153,7 +180,6 @@ def ejecutar_recoleccion_datos():
                 "volumen_ejecutado": valores["executed_total"]
             }
             
-        # Guardamos las métricas en la lista de resultados (sin la lista de anuncios adentro)
         resultados_finales.append({
             "trade_type": trade_type,
             "vol_total_anuncios": vol_total,
@@ -161,15 +187,12 @@ def ejecutar_recoleccion_datos():
             "ordenes_abiertas": ordenes_abiertas_por_tipo
         })
 
-        # Almacenamos temporalmente los anuncios mapeados con su llave correspondiente
         anuncios_por_tipo[merchant_key] = anuncios
 
-    # 🟢 Construcción del documento final de MongoDB
     documento = {
         "timestamp": datetime.now(timezone.utc),
         "exchange": "bybit",
         "resultados": resultados_finales,
-        # Desempaquetamos merchant_buy y merchant_sell para que queden al mismo nivel
         "merchant_buy": anuncios_por_tipo.get("merchant_buy", []),
         "merchant_sell": anuncios_por_tipo.get("merchant_sell", [])
     }
@@ -179,13 +202,6 @@ def ejecutar_recoleccion_datos():
         print(f"✅ Recolección completa. Datos guardados en MongoDB. {datetime.now().strftime('%H:%M:%S')}")
     except Exception as e:
         print(f"❌ Error MongoDB: {e}")
-    # Inserción en MongoDB
-    documento = {
-        "timestamp": datetime.now(timezone.utc),
-        "exchange": "bybit",
-        "resultados": resultados_finales
-    }
-    
 
 
 def worker():
@@ -193,8 +209,7 @@ def worker():
     
     while True:
         ahora = datetime.now()
-        # Horario: 10s en día, 30s en noche
-        intervalo = 15 if 6 <= ahora.hour <= 23 else 30
+        intervalo = 10 if 6 <= ahora.hour <= 23 else 30
         
         ejecutar_recoleccion_datos()
         time.sleep(intervalo)
